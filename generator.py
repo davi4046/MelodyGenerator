@@ -1,4 +1,6 @@
 import random
+from midiutil import MIDIFile
+from datetime import datetime
 
 class Note:
     def __init__(self, pitch, duration):
@@ -36,7 +38,8 @@ def generate_melody(length, min_pitch, max_pitch, allowed_intervals, allowed_dur
                     possible_pitches.append(below)
         chosen_pitch = random.choice(possible_pitches)
         # If a melody-to-counter is provided, pitches are ranked by the intervals they create against it.
-        if kwargs.get("melody_to_counter"):
+        melody_to_counter = kwargs.get("melody_to_counter")
+        if  melody_to_counter:
             # Calculate note timespan
             if len(melody) == 0:
                 note_timespan = {"start_time": 0, "end_time": chosen_duration}
@@ -44,8 +47,17 @@ def generate_melody(length, min_pitch, max_pitch, allowed_intervals, allowed_dur
                 prev_note_end_time = get_timespan_of_note_in_melody(melody, len(melody) - 1)["end_time"]
                 note_timespan = {"start_time": prev_note_end_time, "end_time": prev_note_end_time + chosen_duration}
             # Get overlapped notes in the melody-to-counter.
-            overlapped_notes = get_notes_in_timespan(kwargs.get("melody_to_counter"), note_timespan)
+            overlapped_notes = get_notes_in_timespan(melody_to_counter, note_timespan)
+            # If crossover of melody and melody-to-counter is not allowed, remove any pitches that would do this.
+            if kwargs.get("allow_crossover") == False:
+                melody_is_above = min_pitch > melody_to_counter[0].pitch
+                for pp in possible_pitches:
+                    for note in overlapped_notes:
+                        if melody_is_above and pp < note.pitch or not melody_is_above and pp > note.pitch:
+                            possible_pitches.remove(pp)
+                            print("removed pitch")
             # Rank possible pitches.
+            print(len(possible_pitches))
             pitches_ranked = {}
             for pp in possible_pitches:
                 score = 0
@@ -107,7 +119,23 @@ def get_interval_between_pitches(p1, p2):
     return abs(p1 % 12 - p2 % 12)
 
 melody = generate_melody(32, 0, 87, [1, 2, 6, 10, 11], [4])
-counter_melody = generate_melody(32, 6, 87, [1, 2, 6, 10, 11], [4], melody_to_counter=melody)
+counter_melody = generate_melody(32, 6, 87, [1, 2, 6, 10, 11], [4], melody_to_counter=melody, allow_crossover=False)
+channels = [counter_melody, melody]
 
 print([get_note_name(note) for note in melody])
 print([get_note_name(note) for note in counter_melody])
+
+track = 0
+time = 0
+
+mf = MIDIFile(1)
+mf.addTrackName(track, time, "Track 1")
+mf.addTempo(track, time, 60)
+for i in range(0, len(channels)):
+    time = 0
+    for note in channels[i]:
+        mf.addNote(track, i, note.pitch, time, note.duration, 64)
+        time += note.duration
+timestr = datetime.now().strftime("%m-%d-%Y_%H-%M-%S")
+with open(f"{timestr}.mid", "wb") as outf:
+   mf.writeFile(outf)
